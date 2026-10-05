@@ -52,8 +52,6 @@ Actions
 
 6.最终访问地址
 
-你原来的域名：
-
 https://ad.baidu.com
 
 测试：
