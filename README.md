@@ -1,25 +1,45 @@
 本项目适合X86小主机，MOSDNS的规则比较多
 
 5个源
+
    ↓
+   
 GitHub Actions
+
    ↓
+   
 清洗
+
    ↓
+   
 去重
+
    ↓
+   
 排序
+
    ↓
+   
 rules.txt
+
    ↓
+   
 20 MiB 自动分片
+
    ↓
+   
 Cloudflare KV
+
    ↓
+   
 Worker
+
    ↓
+   
 /rules.txt
+
    ↓
+   
 MOSDNS
 
 1.FORK项目私有
