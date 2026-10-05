@@ -1,0 +1,13 @@
+name = "mosdns-rules"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+
+workers_dev = false
+
+[[kv_namespaces]]
+binding = "YOUTUBE_ADS"
+id = "YOUR_KV_NAMESPACE_ID"
+
+[[routes]]
+pattern = "ad.baidu.com"
+custom_domain = true
