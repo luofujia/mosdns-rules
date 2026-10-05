@@ -1,0 +1,373 @@
+name: Update MOSDNS Rules
+
+on:
+
+  workflow_dispatch:
+
+  schedule:
+    # UTC 19:00
+    # 日本 04:00
+    # 中国 03:00
+    - cron: "0 19 * * *"
+
+
+permissions:
+  contents: read
+
+
+jobs:
+
+  update:
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # ====================================================
+      # 1. Checkout
+      # ====================================================
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+
+      # ====================================================
+      # 2. Python
+      # ====================================================
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+
+      # ====================================================
+      # 3. 生成规则
+      # ====================================================
+
+      - name: Generate rules
+        run: |
+          set -e
+
+          python scripts/generate_rules.py
+
+
+      # ====================================================
+      # 4. 显示结果
+      # ====================================================
+
+      - name: Show generated files
+        run: |
+          set -e
+
+          echo
+          echo "=============================="
+          echo "OUTPUT FILES"
+          echo "=============================="
+
+          ls -lah output/
+
+          echo
+          echo "rules.txt:"
+          wc -l output/rules.txt
+          du -h output/rules.txt
+
+          echo
+          echo "youtube_ads_domains.txt:"
+          wc -l output/youtube_ads_domains.txt
+          du -h output/youtube_ads_domains.txt
+
+          echo
+          echo "meta.json:"
+          cat output/meta.json
+
+
+      # ====================================================
+      # 5. 自动分片
+      #
+      # 每片 20 MiB
+      #
+      # KV 单 value 最大 25 MiB
+      # ====================================================
+
+      - name: Split rules
+        shell: bash
+        run: |
+          set -e
+
+          rm -rf output/chunks
+
+          mkdir -p output/chunks
+
+          CHUNK_SIZE=$((20 * 1024 * 1024))
+
+          split \
+            --bytes="$CHUNK_SIZE" \
+            --numeric-suffixes=0 \
+            --suffix-length=5 \
+            output/rules.txt \
+            output/chunks/rules_
+
+          echo
+          echo "=============================="
+          echo "RULE CHUNKS"
+          echo "=============================="
+
+          ls -lah output/chunks/
+
+          COUNT=$(find output/chunks \
+            -type f \
+            -name 'rules_*' \
+            | wc -l)
+
+          echo
+          echo "CHUNK COUNT: $COUNT"
+
+          if [ "$COUNT" -lt 1 ]; then
+            echo "ERROR: no chunks"
+            exit 1
+          fi
+
+          if [ "$COUNT" -gt 900 ]; then
+            echo "ERROR: too many chunks"
+            exit 1
+          fi
+
+
+      # ====================================================
+      # 6. 安装 Wrangler
+      # ====================================================
+
+      - name: Install Wrangler
+        run: |
+          set -e
+
+          npm install -g wrangler@latest
+
+          wrangler --version
+
+
+      # ====================================================
+      # 7. Cloudflare 登录检查
+      # ====================================================
+
+      - name: Check Cloudflare
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -e
+
+          wrangler whoami
+
+
+      # ====================================================
+      # 8. 生成版本号
+      # ====================================================
+
+      - name: Create version
+        id: version
+        shell: bash
+        run: |
+          VERSION=$(date -u +"%Y%m%d-%H%M%S")
+
+          echo "VERSION=$VERSION"
+
+          echo "version=$VERSION" \
+            >> "$GITHUB_OUTPUT"
+
+
+      # ====================================================
+      # 9. 上传 rules 分片
+      #
+      # 例如：
+      #
+      # rules/20261005-190000/00000
+      # rules/20261005-190000/00001
+      # rules/20261005-190000/00002
+      #
+      # ====================================================
+
+      - name: Upload rule chunks
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          set -e
+
+          COUNT=0
+
+          for FILE in \
+            output/chunks/rules_*; do
+
+            INDEX=$(printf "%05d" "$COUNT")
+
+            KEY="rules/${VERSION}/${INDEX}"
+
+            echo
+            echo "--------------------------------"
+            echo "Uploading:"
+            echo "$KEY"
+            echo "File:"
+            echo "$FILE"
+            echo "--------------------------------"
+
+            npx wrangler kv key put \
+              "$KEY" \
+              --binding=YOUTUBE_ADS \
+              --path="$FILE" \
+              --remote
+
+            COUNT=$((COUNT + 1))
+
+          done
+
+          echo
+          echo "Uploaded:"
+          echo "$COUNT chunks"
+
+
+      # ====================================================
+      # 10. 上传 YouTube 规则
+      # ====================================================
+
+      - name: Upload YouTube rules
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -e
+
+          npx wrangler kv key put \
+            "youtube_ads_domains.txt" \
+            --binding=YOUTUBE_ADS \
+            --path="output/youtube_ads_domains.txt" \
+            --remote
+
+
+      # ====================================================
+      # 11. 上传 meta
+      # ====================================================
+
+      - name: Upload meta
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -e
+
+          npx wrangler kv key put \
+            "meta.json" \
+            --binding=YOUTUBE_ADS \
+            --path="output/meta.json" \
+            --remote
+
+
+      # ====================================================
+      # 12. 创建 manifest
+      # ====================================================
+
+      - name: Create manifest
+        id: manifest
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          set -e
+
+          COUNT=$(find output/chunks \
+            -type f \
+            -name 'rules_*' \
+            | wc -l)
+
+          GENERATED_AT=$(date -u \
+            +"%Y-%m-%dT%H:%M:%SZ")
+
+          cat > output/rules_manifest.json <<EOF
+          {
+            "version": "${VERSION}",
+            "prefix": "rules/${VERSION}",
+            "count": ${COUNT},
+            "chunk_size_mib": 20,
+            "generated_at": "${GENERATED_AT}"
+          }
+          EOF
+
+          echo
+          echo "=============================="
+          echo "MANIFEST"
+          echo "=============================="
+
+          cat output/rules_manifest.json
+
+
+      # ====================================================
+      # 13. 最后上传 manifest
+      #
+      # 这是“正式发布”动作
+      #
+      # 前面任何一个步骤失败：
+      # manifest 都不会更新
+      #
+      # Worker 继续使用旧规则
+      # ====================================================
+
+      - name: Publish manifest
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -e
+
+          npx wrangler kv key put \
+            "rules_manifest.json" \
+            --binding=YOUTUBE_ADS \
+            --path="output/rules_manifest.json" \
+            --remote
+
+
+      # ====================================================
+      # 14. 部署 Worker
+      # ====================================================
+
+      - name: Deploy Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -e
+
+          npx wrangler deploy
+
+
+      # ====================================================
+      # 15. 最终总结
+      # ====================================================
+
+      - name: Final summary
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          echo
+          echo "========================================"
+          echo " MOSDNS RULE UPDATE SUCCESS"
+          echo "========================================"
+          echo
+          echo "VERSION:"
+          echo "$VERSION"
+          echo
+          echo "TOTAL RULES:"
+          wc -l output/rules.txt
+          echo
+          echo "RULE SIZE:"
+          du -h output/rules.txt
+          echo
+          echo "YOUTUBE RULES:"
+          wc -l output/youtube_ads_domains.txt
+          echo
+          echo "MANIFEST:"
+          cat output/rules_manifest.json
+          echo
+          echo "========================================"
