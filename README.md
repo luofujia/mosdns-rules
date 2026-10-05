@@ -20,7 +20,7 @@ id = "YOUR_KV_NAMESPACE_ID"
 
 id = "你的真实KV ID"
 
-pattern = "ad.baidu.com"填写自定义域名
+pattern = "ad.baidu.com"填写一个托管在CF上的自定义域名，不需要在CF上面操作
 
 4. 创建 Cloudflare API Token
 
