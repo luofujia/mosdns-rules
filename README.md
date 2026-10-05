@@ -28,12 +28,6 @@ pattern = "ad.baidu.com"填写一个托管在CF上的自定义域名，不需要
 
 4. 创建 Cloudflare API Token
 
-需要让 GitHub Actions 能：
-
-部署 Worker
-+
-读写 KV
-
 然后 GitHub：
 
 Settings
