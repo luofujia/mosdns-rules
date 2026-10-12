@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 SOURCES = [
     {
         "name": "5whys",
-        "url": "https://raw.githubusercontent.com/5-whys/adh-rules/main/rules/output_super_domains.txt",
+        "url": "https://raw.githubusercontent.com/5-whys/adh-rules/main/rules/output_min_domains.txt",
     },
     {
         "name": "adguard",
